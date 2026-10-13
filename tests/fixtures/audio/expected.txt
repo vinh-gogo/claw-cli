@@ -1,0 +1,10 @@
+Liệt kê các file trong thư mục này
+Đọc file readme rồi tóm tắt cho tôi
+Tìm tất cả chỗ có chữ TODO trong code
+Chạy test và cho biết file nào bị lỗi
+Cho tôi xem git status
+Tạo file ghi chú chấm md với nội dung họp thứ hai
+Đổi tên hàm get user thành fetch user trong thư mục src
+Cài thư viện requests rồi chạy thử script main
+Dung lượng thư mục này là bao nhiêu
+Commit các thay đổi với lời nhắn sửa lỗi đăng nhập
