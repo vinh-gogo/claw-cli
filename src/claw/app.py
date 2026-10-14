@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -203,30 +204,31 @@ class ClawApp:
                     break
 
                 # Check if user pressed Enter to finish, '/' to type command, or Esc to cancel on Windows
-                try:
-                    import msvcrt
+                if sys.platform == "win32":
+                    try:
+                        import msvcrt
 
-                    while msvcrt.kbhit():
-                        ch = msvcrt.getwch()
-                        if ch == "\x1b":
-                            cancelled = True
+                        while msvcrt.kbhit():
+                            ch = msvcrt.getwch()
+                            if ch == "\x1b":
+                                cancelled = True
+                                break
+                            if ch == "/":
+                                slash_typed = True
+                                break
+                            if ch in ("\r", "\n"):
+                                frames_to_use = (
+                                    self.utterance_detector.speech_frames
+                                    if self.utterance_detector.speech_frames
+                                    else all_frames
+                                )
+                                if frames_to_use:
+                                    complete_pcm = np.concatenate(frames_to_use)
+                                break
+                        if cancelled or slash_typed or complete_pcm is not None:
                             break
-                        if ch == "/":
-                            slash_typed = True
-                            break
-                        if ch in ("\r", "\n"):
-                            frames_to_use = (
-                                self.utterance_detector.speech_frames
-                                if self.utterance_detector.speech_frames
-                                else all_frames
-                            )
-                            if frames_to_use:
-                                complete_pcm = np.concatenate(frames_to_use)
-                            break
-                    if cancelled or slash_typed or complete_pcm is not None:
-                        break
-                except ImportError:
-                    pass
+                    except ImportError:
+                        pass
         finally:
             await self.recorder.stop()
             self.ducker.restore_duck()

@@ -132,7 +132,8 @@ class AppManager:
 
         if target.startswith("ms-settings:"):
             try:
-                os.startfile(target)
+                if sys.platform == "win32":
+                    os.startfile(target)
                 return True, "Cài đặt Windows"
             except Exception as e:
                 return False, str(e)

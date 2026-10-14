@@ -41,7 +41,7 @@ class BashTool(Tool):
                 env=clean_env,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
-                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if is_win else 0,
+                creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if is_win else 0,
             )
         except Exception as e:
             return ToolResult.fail(f"Không thể khởi động tiến trình shell: {e}")
