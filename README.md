@@ -1,102 +1,112 @@
-# claw-cli 🎙️🤖
+<div align="center">
+  <img src="docs/assets/hero-banner.svg" alt="claw-cli — Trợ lý terminal điều khiển bằng giọng nói tiếng Việt và văn bản" width="100%" />
 
-> **Trợ lý terminal điều khiển bằng giọng nói tiếng Việt và văn bản dành cho lập trình viên.**
-> Nói vào microphone → `claw` nghe, hiểu, tự động dùng công cụ (đọc/ghi file, chạy lệnh shell…) để làm việc trong terminal → báo cáo kết quả bằng chữ và giọng nói tự nhiên.
+  <br />
 
----
-
-## 🌟 Điểm nổi bật
-
-- **Điều khiển terminal bằng tiếng Việt tự nhiên:** Hỗ trợ nói tiếng Việt xen lẫn thuật ngữ kỹ thuật tiếng Anh (`git`, `commit`, `docker`, `pytest`, `npm`...).
-- **Vòng lặp Agent thông minh (Agent Loop):** Tự động lập kế hoạch, gọi công cụ, kiểm tra kết quả và tự sửa lỗi đến khi hoàn thành mục tiêu.
-- **Bảo mật & An toàn tối đa (Safety-First):**
-  - Phân loại rủi ro 4 cấp độ: `read`, `write`, `exec`, `dangerous`.
-  - Các lệnh nguy hiểm (`rm -rf`, `sudo`, `git push --force`, `git reset --hard`...) **bắt buộc xác nhận trực tiếp từ bàn phím** (gõ `yes`), không cho phép duyệt bằng giọng nói.
-  - Sandbox giới hạn đường dẫn trong thư mục làm việc hiện tại, chống path traversal (`../`) và bảo vệ các file nhạy cảm (`.env`, SSH keys).
-  - Tự động lọc sạch các biến môi trường nhạy cảm (`KEY`, `SECRET`, `TOKEN`) trước khi chạy lệnh shell.
-- **Đa phương thức linh hoạt:** Dùng song song cả **gõ phím lẫn nói** trong cùng một phiên làm việc (nhấn `Space` để nói, gõ phím như bình thường).
-- **Hỗ trợ mọi LLM OpenAI-Compatible:** Kết nối mượt mà với Ollama, vLLM, llama.cpp, OpenAI, hoặc ngrok endpoint với khả năng tự động thích ứng giữa native tool calling và prompt fallback mode.
+  <p>
+    <a href="https://github.com/vinh-gogo/claw-cli/actions"><img src="https://img.shields.io/github/actions/workflow/status/vinh-gogo/claw-cli/ci.yml?branch=main&style=flat-square&logo=githubactions&logoColor=white&label=CI" alt="CI Status" /></a>
+    <img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+" />
+    <img src="https://img.shields.io/badge/Platform-Windows%2010%2F11-0078D6?style=flat-square&logo=windows&logoColor=white" alt="Windows 10/11" />
+    <img src="https://img.shields.io/badge/AI-Gemma%204%20(26B%20%2B%20E2B%20STT)-10B981?style=flat-square&logo=google&logoColor=white" alt="Gemma 4" />
+    <img src="https://img.shields.io/badge/VAD-Silero%20v5%20ONNX-06B6D4?style=flat-square" alt="Silero VAD v5" />
+    <img src="https://img.shields.io/badge/License-MIT-F59E0B?style=flat-square" alt="MIT License" />
+  </p>
+</div>
 
 ---
 
-## 🚀 Cài đặt & Khởi động nhanh
+## Tổng quan kiến trúc
 
-### Yêu cầu hệ thống
-- Python 3.11+
-- Microphone và Loa (để dùng tính năng giọng nói)
+<div align="center">
+  <img src="docs/assets/architecture.svg" alt="Kiến trúc Unified Gateway của claw-cli" width="100%" />
+</div>
 
-### Cài đặt qua `uv` hoặc `pip`
+### Điểm nổi bật
 
-```bash
+- **Điều khiển terminal & Windows bằng tiếng Việt tự nhiên:** Hỗ trợ nói tiếng Việt xen lẫn thuật ngữ kỹ thuật tiếng Anh (`git`, `commit`, `docker`, `pytest`, `npm`...) và điều khiển ứng dụng Windows (`winctl`).
+- **Tự động phát hiện kết thúc câu nói (Automatic End-of-Utterance):** Tích hợp mạng nơ-ron **Silero VAD v5 ONNX** kết hợp ngưỡng năng lượng thích nghi (Adaptive Hysteresis) giúp lọc tiếng ồn quạt/bàn phím và **tự động chốt câu ngay khi bạn ngừng nói `0.6 giây`** mà không cần bấm `Enter`.
+- **Chuyển đổi linh hoạt chế độ giọng nói & văn bản:**
+  - `Hỗn hợp (Mặc định)`: Gõ lệnh trực tiếp hoặc nhấn `Space` khi dòng trống để nói.
+  - `/speech on`: **Chỉ nhận lệnh bằng giọng nói** (tự động lắng nghe liên tục qua từng lượt).
+  - `/speech off`: **Chỉ nhận lệnh bằng văn bản** (tắt kích hoạt thu âm bằng phím `Space`).
+- **Một URL Ngrok duy nhất cho cả LLM & STT (`Unified FastAPI Gateway`):**
+  - Notebook [`colab/colab_llama_cpp_ngrok.ipynb`](colab/colab_llama_cpp_ngrok.ipynb) khởi động trong **~45 giây** (sử dụng bản Pre-built CUDA binary của `llama.cpp` + tải song song qua `hf_transfer`), phục vụ đồng thời **Gemma 4 26B A4B** (`Port 8001`) và **Gemma 4 E2B STT + Audio mmproj** (`Port 8003`) phía sau **FastAPI Gateway (`Port 8000`)**.
+- **Bảo mật & An toàn 4 cấp độ (`Safety-First`):**
+  - Phân loại rủi ro: `read`, `write`, `exec`, `dangerous`.
+  - Các lệnh nguy hiểm (`rm -rf`, `sudo`, `git push --force`, `git reset --hard`...) **bắt buộc xác nhận trực tiếp từ bàn phím** (`yes`), cấm duyệt bằng giọng nói.
+  - Sandbox giới hạn đường dẫn trong thư mục làm việc hiện tại và tự động lọc sạch biến môi trường nhạy cảm (`KEY`, `SECRET`, `TOKEN`).
+
+---
+
+## Cài đặt & Khởi động nhanh
+
+### 1. Cài đặt trên máy Windows
+
+```powershell
 # Clone repository
 git clone https://github.com/vinh-gogo/claw-cli.git
 cd claw-cli
 
-# Cài đặt môi trường ảo và dependencies với uv
+# Tạo môi trường ảo và cài đặt với uv
 uv venv --python 3.12
 uv pip install -e ".[dev]"
 ```
 
-### Cấu hình môi trường
+### 2. Khởi chạy Google Colab Server (~45 giây)
 
-Tạo file `.env` hoặc cấu hình qua `~/.config/claw/config.toml`:
+Mở [`colab/colab_llama_cpp_ngrok.ipynb`](colab/colab_llama_cpp_ngrok.ipynb) trên Google Colab (GPU L4 / A100):
+1. **Ô 1 (~45s):** Tải Pre-built `llama-server` CUDA binary + tải song song 3 file GGUF (`Gemma 4 26B` + `Gemma 4 E2B STT` + `mmproj`) với tốc độ 500–800 MB/s.
+2. **Ô 2:** Khởi động `STT Backend` (Port `8003`) và `Main LLM Backend` (Port `8001`).
+3. **Ô 3 & Ô 4:** Khởi động `FastAPI Gateway` (Port `8000`) và xuất bản một URL Ngrok duy nhất (`https://.../v1`).
 
-```bash
-cp .env.example .env
-```
-
-Nội dung `.env`:
+Cấu hình `.env` tại thư mục dự án:
 ```env
-CLAW_BASE_URL=https://your-llm-server.ngrok-free.dev/v1
+CLAW_BASE_URL=https://snowcapped-denice-unprudent.ngrok-free.dev/v1
 CLAW_API_KEY=not-needed
 ```
 
 ---
 
-## 💻 Hướng dẫn sử dụng
+## Hướng dẫn sử dụng
 
 ### 1. Phiên tương tác đầy đủ (Interactive Voice + Text REPL)
 
-```bash
+```powershell
 claw
 ```
-- Gõ lệnh bình thường hoặc nhấn **`Space`** khi ô nhập trống để chuyển sang nói.
-- Nhấn **`Esc`** hoặc nói **`"dừng"`** để huỷ hành động ngay lập tức.
-- Nhấn **`Ctrl+T`** hoặc nói **`"im lặng"` / `"bật tiếng"`** để bật/tắt đọc kết quả to.
+
+| Lệnh / Phím tắt | Chức năng |
+| :--- | :--- |
+| **`Space`** *(khi dòng trống)* | Bật microphone để nói (tự động chốt câu khi ngừng nói `0.6s` hoặc nhấn `Enter`) |
+| **`/speech on`** | Chuyển sang chế độ **chỉ nhận lệnh bằng giọng nói** (lắng nghe liên tục từng câu) |
+| **`/speech off`** | Chuyển sang chế độ **chỉ nhận lệnh bằng văn bản** (tắt kích hoạt mic bằng `Space`) |
+| **`/speech`** | Xem trạng thái chế độ đầu vào hiện tại |
+| **`Ctrl+T`** *(hoặc nói `"tắt tiếng"` / `"bật tiếng"`)* | Bật / tắt đọc phản hồi bằng giọng nói TTS (`vi-VN-HoaiMyNeural`) |
+| **`Esc`** *(hoặc nói `"dừng"`)* | Huỷ ngay thao tác đang chạy hoặc thoát chế độ nghe |
 
 ### 2. Thực thi một lệnh duy nhất (One-shot)
 
-```bash
+```powershell
 claw ask "Liệt kê các file python trong thư mục này rồi đếm tổng số dòng"
 claw ask "Chạy test và cho tôi biết bài nào bị lỗi" --yolo
 ```
 
-### 3. Kiểm tra thiết bị âm thanh & chẩn đoán hệ thống
+### 3. Kiểm tra thiết bị & Chẩn đoán hệ thống
 
-```bash
-# Liệt kê micro và loa
-claw devices
-
-# Chẩn đoán toàn diện môi trường (Mic, STT, TTS, LLM latency)
+```powershell
+# Chẩn đoán toàn diện (Mic, Loa, Gemma 4 STT, Edge-TTS, kết nối Colab Server)
 claw doctor
 
-# Xem các model đang có trên LLM server
+# Liệt kê danh sách microphone và loa
+claw devices
+
+# Xem danh sách model trên Colab Gateway (/v1/models)
 claw models
-```
-
-### 4. Quản lý phiên làm việc
-
-```bash
-# Xem danh sách các phiên trước
-claw sessions
-
-# Tiếp tục một phiên cũ
-claw resume <SESSION_ID>
 ```
 
 ---
 
-## 🛡️ Bảng phân loại rủi ro an toàn
+## Bảng phân loại rủi ro an toàn
 
 | Cấp độ | Hành động ví dụ | Hành vi mặc định |
 | :--- | :--- | :--- |
@@ -107,61 +117,39 @@ claw resume <SESSION_ID>
 
 ---
 
-## 🧪 Chạy kiểm thử tự động
+## Package độc lập `gemma_stt` (Nhận dạng giọng nói tiếng Việt gần Realtime)
 
-```bash
-uv run pytest -v
-```
-
-Bộ kiểm thử bao gồm:
-- **Unit tests:** Hơn 50 ca kiểm tra phân loại lệnh shell an toàn, path traversal sandbox, các thao tác file/edit/bash/say/ask_user, nhận diện lệnh meta tiếng Việt, quản lý ngữ cảnh & token.
-- **Integration tests:** Giả lập máy chủ OpenAI SSE streaming & tool calling chuẩn xác (`fake_server.py`) để kiểm thử trọn vẹn vòng lặp agent mà không cần phụ thuộc vào mạng ngoài.
-
----
-
-## 🎙️ Gemma 4 Nhận Dạng Giọng Nói Tiếng Việt Gần Realtime (`gemma_stt`)
-
-Dự án tích hợp sẵn package độc lập `gemma_stt` (xem chi tiết tại [`PLAN_GEMMA4_VIETNAMESE_STT.md`](file:///D:/claw-cli/PLAN_GEMMA4_VIETNAMESE_STT.md)) hỗ trợ nhận dạng giọng nói tiếng Việt gần realtime với 2 chế độ:
-1. **`local_gemma`:** Chạy `google/gemma-4-E2B-it` trực tiếp trên GPU NVIDIA cục bộ (tự động lượng tử hóa `int4`/`int8` cho GPU 6 GB VRAM như RTX 4050 Laptop và lưu cache sang ổ `D:` qua `HF_HOME`).
-2. **`remote_v1`:** Gửi đoạn âm thanh từ VAD local lên Colab / OpenAI-compatible server (`.../v1/chat/completions` với `input_audio` hoặc `/v1/audio/transcriptions`).
-3. **Kết hợp với Gemma 4 26B trên Colab (`--forward-claw`):** Dùng `gemma-4-E2B-it` nhận dạng tiếng Việt ở máy local rồi chuyển văn bản sang `gemma-4-26B-A4B-it` trên Colab (`.../v1`) để điều khiển máy tính/terminal (do bản 26B A4B MoE chỉ có Vision+Text encoder, không có Audio encoder).
-
-### Quy trình khởi chạy nhanh `gemma_stt`
+Ngoài tích hợp trực tiếp trong `claw`, dự án còn cung cấp package `gemma_stt` hỗ trợ cả chạy cục bộ (`local_gemma` trên GPU NVIDIA Windows với lượng tử hóa 4-bit/8-bit) lẫn qua Colab Gateway (`remote_v1` / `auto`):
 
 ```powershell
-# 1. Khảo sát GPU, CUDA, dung lượng ổ đĩa, Microphone và kết nối Colab /v1
+# 1. Kiểm tra môi trường GPU, CUDA, dung lượng đĩa và kết nối Colab /v1
 python scripts/check_env.py
 
-# 2. Liệt kê thiết bị microphone và kiểm tra hỗ trợ 16 kHz mono
-python scripts/list_microphones.py
-
-# 3. Thu âm thử 3 giây từ microphone hoặc sinh bộ WAV kiểm thử
+# 2. Thu âm thử 3 giây từ microphone hoặc sinh bộ WAV kiểm thử
 python scripts/record_test_wav.py --duration 3 --out outputs/test_mic.wav
-python scripts/record_test_wav.py --generate-fixtures
 
-# 4. Kiểm chứng nhận dạng từ file WAV / bộ mẫu reference.csv (Cổng chất lượng Phase C)
-python scripts/transcribe_wav.py --config config.yaml --input tests/fixtures/reference.csv
-
-# 5. Chạy nhận dạng giọng nói tiếng Việt gần realtime từ microphone
+# 3. Chạy nhận dạng giọng nói tiếng Việt gần realtime từ microphone
 python -m gemma_stt --config config.yaml
 
-# 6. Chạy nhận dạng kèm chuyển tiếp lệnh sang Claw Agent (Gemma 4 26B trên Colab /v1)
+# 4. Chạy nhận dạng kèm chuyển tiếp lệnh sang Claw Agent
 python -m gemma_stt --config config.yaml --forward-claw
 
-# 7. Chạy ma trận benchmark độ trễ (p50/p95, RTF) và WER/CER (T01 -> T06)
+# 5. Chạy benchmark độ trễ (p50/p95, RTF) và WER/CER
 python scripts/benchmark.py --config config.yaml
-
-# 8. Xóa toàn bộ dữ liệu transcript/log/metrics để bảo mật riêng tư
-python -m gemma_stt --config config.yaml --clean-outputs
 ```
-
-### Tinh chỉnh cấu hình (`config.yaml`)
-- **`vad.engine`:** Chọn `rms` (nhẹ, nhanh) hoặc `silero` (ONNX học máy giúp lọc tiếng quạt/gõ phím).
-- **`vad.silence_ms` / `vad.max_segment_ms`:** Mặc định chốt câu sau `450 ms` khoảng lặng hoặc cắt đoạn ở `4000 ms` (kèm `overlap_ms: 160` để không mất từ ở ranh giới).
-- **`queue.policy`:** Chọn `preserve_segments` (ưu tiên đầy đủ transcript, áp dụng backpressure) hoặc `ultra_low_latency` (ưu tiên độ trễ thấp, bỏ đoạn cũ khi quá tải nhưng luôn ghi rõ `dropped=True` vào `outputs/results.jsonl`).
 
 ---
 
-## 📄 Giấy phép
+## Kiểm thử & Chất lượng mã nguồn
 
-Dự án được phân phối dưới giấy phép MIT.
+```powershell
+uv run pytest -v
+uv run ruff check .
+uv run mypy src
+```
+
+---
+
+## Giấy phép
+
+Dự án được phân phối dưới giấy phép [MIT](LICENSE).
