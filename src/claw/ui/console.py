@@ -55,8 +55,9 @@ class ConsoleRenderer:
                 self.console.print(Panel(preview, title=f"Kết quả {event.tool}", border_style="dim"))
 
         elif isinstance(event, Final):
+            was_streaming = self._streaming_text
             self._flush_stream()
-            if event.text:
+            if event.text and not was_streaming:
                 self.console.print("\n")
                 self.console.print(Markdown(event.text))
             self.console.print()
@@ -66,7 +67,9 @@ class ConsoleRenderer:
 
         elif isinstance(event, VoiceStateEvent):
             if event.state == "LISTENING":
-                self.console.print("[bold red]🎙 Đang nghe... (Nói vào mic, hoặc nhấn Enter để dừng)[/bold red]")
+                self.console.print(
+                    "[bold red]🎙 Đang nghe... (Nói vào mic — tự động chốt câu khi ngừng nói)[/bold red]"
+                )
             elif event.state == "TRANSCRIBING":
                 self.console.print("[dim]📝 Đang chuyển giọng nói thành văn bản...[/dim]")
 

@@ -31,10 +31,10 @@ class LLMConfig(BaseModel):
 
 
 class STTConfig(BaseModel):
-    provider: Literal["faster-whisper", "openai-compatible", "mock"] = Field(
-        default="faster-whisper"
+    provider: Literal["faster-whisper", "openai-compatible", "gemma-stt", "mock"] = Field(
+        default="gemma-stt"
     )
-    model: str = Field(default="medium")
+    model: str = Field(default="gemma-4-stt")
     language: str = Field(default="vi")
     device: str = Field(default="auto")
     compute_type: str = Field(default="int8")
@@ -57,10 +57,10 @@ class AudioConfig(BaseModel):
     output_device: str | int = Field(default="default")
     sample_rate: int = Field(default=16000)
     input_mode: Literal["toggle", "hands-free", "wake-word"] = Field(default="toggle")
-    silence_ms: int = Field(default=900)
+    silence_ms: int = Field(default=600)
     min_speech_ms: int = Field(default=250)
     pre_roll_ms: int = Field(default=300)
-    review_transcript: bool = Field(default=True)
+    review_transcript: bool = Field(default=False)
     auto_send_ms: int = Field(default=1500)
 
 
@@ -186,6 +186,13 @@ class Config(BaseModel):
         if "CLAW_TOOL_MODE" in os.environ:
             llm_data["tool_mode"] = os.environ["CLAW_TOOL_MODE"]
         cfg_dict["llm"] = llm_data
+
+        stt_data = cfg_dict.get("stt", {})
+        if "CLAW_STT_PROVIDER" in os.environ:
+            stt_data["provider"] = os.environ["CLAW_STT_PROVIDER"]
+        if "CLAW_STT_MODEL" in os.environ:
+            stt_data["model"] = os.environ["CLAW_STT_MODEL"]
+        cfg_dict["stt"] = stt_data
 
         safety_data = cfg_dict.get("safety", {})
         if "CLAW_YOLO" in os.environ:

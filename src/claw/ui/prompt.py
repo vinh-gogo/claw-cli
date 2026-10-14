@@ -29,9 +29,10 @@ class InteractivePrompt:
         @self.bindings.add("space")
         def _(event):
             buf = event.current_buffer
-            # If buffer is empty, pressing Space toggles voice mode
-            if not buf.text and self.on_space_empty:
+            # If buffer is empty and not in text-only (/speech off) mode, pressing Space triggers voice recording
+            if not buf.text and self.on_space_empty and self.status.speech_mode != "off":
                 self.on_space_empty()
+                event.app.exit(result="")
             else:
                 buf.insert_text(" ")
 
@@ -46,14 +47,24 @@ class InteractivePrompt:
                 self.on_cancel()
 
     def get_bottom_toolbar(self) -> HTML:
-        state_icon = "🎙 [Nghe: Space]" if self.status.voice_state == "IDLE" else f"<b>[{self.status.voice_state}]</b>"
+        if self.status.speech_mode == "off":
+            state_icon = "⌨️ [Chỉ văn bản | /speech on]"
+        elif self.status.speech_mode == "on":
+            state_icon = "🎙 [Chỉ giọng nói | /speech off]"
+        else:
+            state_icon = (
+                "🎙 [Nghe: Space | /speech on|off]"
+                if self.status.voice_state == "IDLE"
+                else f"<b>[{self.status.voice_state}]</b>"
+            )
         tts_icon = "🔊 TTS: Bật (Ctrl+T)" if self.status.tts_enabled else "🔇 TTS: Tắt (Ctrl+T)"
         return HTML(f"<style bg='ansiblue' fg='ansiwhite'> {state_icon} | {tts_icon} | Esc: Huỷ | Model: {self.status.model} </style>")
 
-    async def get_input(self) -> str:
+    async def get_input(self, default: str = "") -> str:
         """Prompt user asynchronously for command."""
         text = await self.session.prompt_async(
             HTML("<ansigreen><b>claw ▸</b></ansigreen> "),
+            default=default,
             bottom_toolbar=self.get_bottom_toolbar,
         )
         return text.strip()

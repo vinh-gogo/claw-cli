@@ -1,0 +1,72 @@
+# Cấu hình Gemma 4 Nhận Dạng Giọng Nói Tiếng Việt Gần Realtime (gemma_stt)
+# Chạy bằng: python -m gemma_stt --config config.yaml
+
+backend:
+  # Chế độ chạy STT:
+  # - "local_gemma": chạy google/gemma-4-E2B-it trực tiếp trên GPU NVIDIA cục bộ (CUDA)
+  # - "remote_v1": gửi đoạn âm thanh WAV (in-memory) lên Colab / OpenAI-compatible server (.../v1)
+  # - "auto": thử kết nối remote_v1 (Colab Gateway) nếu hỗ trợ audio, nếu không tự động rơi về local_gemma
+  mode: auto
+  # Lưu cache Hugging Face trên ổ D: (trống ~150 GB) thay vì ổ C: (trống ~32 GB)
+  cache_dir: "D:/claw-cli/.cache/huggingface"
+  offline: false
+
+model:
+  id: google/gemma-4-E2B-it
+  dtype: auto
+  attention: sdpa
+  # Lượng tử hóa cho GPU 6 GB VRAM (RTX 4050 Laptop):
+  # - "auto": tự động chọn int4/int8 hoặc quanto nếu tổng VRAM <= 6.5 GB để tránh tràn sang CPU
+  # - "none": giữ nguyên dtype (bfloat16/float16)
+  # - "int4" / "int8": dùng BitsAndBytes hoặc Optimum-Quanto
+  quantization: auto
+  max_new_tokens: 128
+  enable_thinking: false
+  warmup_runs: 1
+  prompt: >-
+    Transcribe the following Vietnamese speech into Vietnamese text.
+    Preserve Vietnamese diacritics. Output transcription only.
+
+remote_v1:
+  # URL server Colab / FastAPI Gateway (có thể ghi đè qua biến môi trường CLAW_BASE_URL)
+  base_url: "https://snowcapped-denice-unprudent.ngrok-free.dev/v1"
+  api_key_env: "CLAW_API_KEY"
+  api_key: "not-needed"
+  # Tên model STT trên Colab Gateway ("gemma-4-stt" hoặc "auto")
+  model: "gemma-4-stt"
+  # Kiểu endpoint nhận audio trên server .../v1:
+  # - "auto": tự phát hiện (/v1/audio/transcriptions hoặc /v1/chat/completions với input_audio)
+  # - "transcriptions": gửi qua POST /v1/audio/transcriptions (OpenAI SDK compatible)
+  # - "chat_audio": gửi qua POST /v1/chat/completions (input_audio base64 WAV)
+  endpoint_type: "auto"
+  timeout_s: 30.0
+  extra_headers:
+    ngrok-skip-browser-warning: "true"
+
+audio:
+  device: null          # null = thiết bị micro mặc định của Windows, hoặc điền ID / tên thiết bị
+  sample_rate: 16000    # Chuẩn 16 kHz mono cho VAD và ASR
+  channels: 1
+  block_ms: 20          # 20 ms mỗi block (= 320 samples ở 16 kHz)
+
+vad:
+  engine: rms           # "rms" (MVP nhanh, nhẹ) hoặc "silero" (ONNX VAD lọc ồn quạt/bàn phím)
+  threshold: 0.012      # Ngưỡng RMS (hiệu chỉnh theo độ nhạy micro)
+  silero_threshold: 0.5 # Ngưỡng xác suất giọng nói khi dùng engine: silero
+  pre_roll_ms: 200      # Giữ lại 200 ms trước khi phát hiện tiếng nói để không mất âm đầu câu
+  silence_ms: 450       # Khoảng lặng (ms) để chốt kết thúc câu
+  min_speech_ms: 350    # Loại bỏ đoạn âm thanh ngắn hơn 350 ms (tiếng gõ phím/tạp âm ngắn)
+  max_segment_ms: 4000  # Chốt đoạn dài tối đa 4 giây để khống chế độ trễ near-real-time
+  overlap_ms: 160       # Giữ lại 160 ms cuối khi cắt cưỡng bức do chạm max_segment_ms
+
+queue:
+  audio_max_blocks: 150       # ~3 giây audio block trong hàng đợi thu âm
+  inference_max_segments: 4   # Tối đa 4 đoạn hội thoại chờ GPU xử lý
+  policy: preserve_segments   # "preserve_segments" (không bỏ đoạn) hoặc "ultra_low_latency" (bỏ đoạn cũ có log)
+
+output:
+  transcript_path: outputs/transcript.txt
+  results_path: outputs/results.jsonl
+  metrics_path: outputs/metrics.csv
+  save_debug_wav: false
+  debug_wav_dir: outputs/debug_wav

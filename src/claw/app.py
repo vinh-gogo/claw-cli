@@ -103,6 +103,10 @@ class ClawApp:
         # STT Provider
         if self.cfg.stt.provider == "openai-compatible":
             self.stt: Any = OpenAICompatibleSTT(self.cfg.llm, self.cfg.stt)
+        elif self.cfg.stt.provider == "gemma-stt":
+            from claw.voice.stt.gemma import Gemma4STTProvider
+
+            self.stt = Gemma4STTProvider(llm_cfg=self.cfg.llm, stt_cfg=self.cfg.stt)
         else:
             self.stt = FasterWhisperSTT(self.cfg.stt)
 
@@ -177,21 +181,65 @@ class ClawApp:
         """Record from microphone until an utterance is complete, then transcribe with STT."""
         self.status.voice_state = "LISTENING"
         self.renderer.render_event(VoiceStateEvent("LISTENING"))
+        if self.status.speech_mode == "on":
+            self.console.print(
+                "[dim]   (Đang ở chế độ /speech on · Nhấn '/' hoặc Esc để nhập '/speech off')[/dim]"
+            )
 
         self.ducker.start_duck()
         await self.recorder.start()
         self.utterance_detector.reset()
 
         complete_pcm: np.ndarray | None = None
+        all_frames: list[np.ndarray] = []
+        cancelled = False
+        slash_typed = False
         try:
             async for frame in self.recorder.stream_frames():
+                all_frames.append(frame)
                 utterance = self.utterance_detector.process_frame(frame)
                 if utterance is not None:
                     complete_pcm = utterance
                     break
+
+                # Check if user pressed Enter to finish, '/' to type command, or Esc to cancel on Windows
+                try:
+                    import msvcrt
+
+                    while msvcrt.kbhit():
+                        ch = msvcrt.getwch()
+                        if ch == "\x1b":
+                            cancelled = True
+                            break
+                        if ch == "/":
+                            slash_typed = True
+                            break
+                        if ch in ("\r", "\n"):
+                            frames_to_use = (
+                                self.utterance_detector.speech_frames
+                                if self.utterance_detector.speech_frames
+                                else all_frames
+                            )
+                            if frames_to_use:
+                                complete_pcm = np.concatenate(frames_to_use)
+                            break
+                    if cancelled or slash_typed or complete_pcm is not None:
+                        break
+                except ImportError:
+                    pass
         finally:
             await self.recorder.stop()
             self.ducker.restore_duck()
+
+        if slash_typed:
+            self.status.voice_state = "IDLE"
+            return "__SLASH_COMMAND__"
+
+        if cancelled:
+            self.status.voice_state = "IDLE"
+            if self.status.speech_mode == "on":
+                return "/speech off"
+            return None
 
         if complete_pcm is None:
             self.status.voice_state = "IDLE"
@@ -221,7 +269,7 @@ class ClawApp:
         self.console.print(
             Panel.fit(
                 "[bold cyan]CLAW CLI[/bold cyan] — Trợ lý dòng lệnh điều khiển bằng giọng nói tiếng Việt\n"
-                "[dim]Gõ phím hoặc nhấn [bold yellow]Space[/bold yellow] để nói · [bold]Esc[/bold] huỷ · [bold]Ctrl+T[/bold] tắt/bật TTS[/dim]",
+                "[dim]Gõ phím hoặc nhấn [bold yellow]Space[/bold yellow] để nói · [bold]/speech on[/bold] chỉ giọng nói · [bold]/speech off[/bold] chỉ văn bản · [bold]Ctrl+T[/bold] TTS[/dim]",
                 border_style="cyan",
             )
         )
@@ -230,7 +278,8 @@ class ClawApp:
 
         def trigger_voice():
             nonlocal want_voice_recording
-            want_voice_recording = True
+            if self.status.speech_mode != "off":
+                want_voice_recording = True
 
         def toggle_tts():
             self.status.tts_enabled = not self.status.tts_enabled
@@ -247,29 +296,54 @@ class ClawApp:
         while True:
             try:
                 user_text = ""
-                if want_voice_recording:
+                if self.status.speech_mode == "on" or (
+                    want_voice_recording and self.status.speech_mode != "off"
+                ):
                     want_voice_recording = False
                     spoken = await self.record_voice_input()
                     if not spoken:
                         continue
 
-                    # Transcript review if enabled
-                    if self.cfg.audio.review_transcript:
-                        self.console.print(f"\n🎙 Nhận diện: [bold green]\"{spoken}\"[/bold green]")
-                        self.console.print("[dim][Enter=Gửi · e=Sửa · Esc=Huỷ (tự gửi sau 1.5s)]...[/dim]")
-                        # Wait for enter or auto-send timeout
-                        try:
-                            edited = await asyncio.wait_for(
-                                asyncio.to_thread(input),
-                                timeout=self.cfg.audio.auto_send_ms / 1000.0,
+                    if spoken == "__SLASH_COMMAND__":
+                        cmd_text = await ui_prompt.get_input(default="/")
+                        if not cmd_text:
+                            continue
+                        routed_cmd = route_input(cmd_text)
+                        if routed_cmd.kind in ("speech_off", "speech_on") or cmd_text.lower() in (
+                            "exit",
+                            "quit",
+                            ":q",
+                        ):
+                            user_text = cmd_text
+                        elif self.status.speech_mode == "on":
+                            self.console.print(
+                                "[yellow]Đang ở chế độ chỉ nhận giọng nói (/speech on). "
+                                "Hãy nói vào mic hoặc nhập '/speech off' để chuyển sang văn bản.[/yellow]"
                             )
-                            if edited.strip():
-                                spoken = edited.strip()
-                        except asyncio.TimeoutError:
-                            # Auto-sent
-                            pass
-                    user_text = spoken
+                            continue
+                        else:
+                            user_text = cmd_text
+                    elif route_input(spoken).kind in ("speech_off", "speech_on"):
+                        user_text = spoken
+                    else:
+                        self.console.print(f"\n🎙 Nhận diện: [bold green]\"{spoken}\"[/bold green]")
+                        # Transcript review if enabled
+                        if self.cfg.audio.review_transcript:
+                            self.console.print("[dim][Enter=Gửi · e=Sửa · /speech off=Tắt mic (tự gửi sau 1.5s)]...[/dim]")
+                            # Wait for enter or auto-send timeout
+                            try:
+                                edited = await asyncio.wait_for(
+                                    asyncio.to_thread(input),
+                                    timeout=self.cfg.audio.auto_send_ms / 1000.0,
+                                )
+                                if edited.strip():
+                                    spoken = edited.strip()
+                            except asyncio.TimeoutError:
+                                # Auto-sent
+                                pass
+                        user_text = spoken
                 else:
+                    want_voice_recording = False
                     user_text = await ui_prompt.get_input()
 
                 if not user_text:
@@ -279,10 +353,36 @@ class ClawApp:
                     self.console.print("[bold yellow]Tạm biệt![/bold yellow]")
                     break
 
+                if user_text.strip().lower() == "/speech":
+                    mode_desc = {
+                        "on": "Chỉ nhận giọng nói (/speech on)",
+                        "off": "Chỉ nhận văn bản (/speech off)",
+                        "hybrid": "Hỗn hợp (Space để nói hoặc gõ văn bản)",
+                    }.get(self.status.speech_mode, self.status.speech_mode)
+                    self.console.print(
+                        f"[cyan]Chế độ hiện tại:[/cyan] [bold]{mode_desc}[/bold]\n"
+                        "[dim]Sử dụng: '/speech on' (chỉ nhận giọng nói) hoặc '/speech off' (chỉ nhận văn bản)[/dim]"
+                    )
+                    continue
+
                 # Route input for meta commands
                 routed = route_input(user_text)
 
-                if routed.kind == "cancel":
+                if routed.kind == "speech_on":
+                    self.status.speech_mode = "on"
+                    want_voice_recording = True
+                    self.console.print(
+                        "[bold green]🎙 Đã bật chế độ giọng nói (/speech on): Chỉ nhận lệnh bằng giọng nói.[/bold green]"
+                    )
+                    continue
+                elif routed.kind == "speech_off":
+                    self.status.speech_mode = "off"
+                    want_voice_recording = False
+                    self.console.print(
+                        "[bold cyan]⌨️ Đã tắt chế độ giọng nói (/speech off): Chỉ nhận lệnh bằng văn bản.[/bold cyan]"
+                    )
+                    continue
+                elif routed.kind == "cancel":
                     self.agent_loop.cancel()
                     self.player.stop()
                     self.console.print("[yellow]Đã huỷ thao tác.[/yellow]")

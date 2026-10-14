@@ -119,6 +119,49 @@ Bộ kiểm thử bao gồm:
 
 ---
 
+## 🎙️ Gemma 4 Nhận Dạng Giọng Nói Tiếng Việt Gần Realtime (`gemma_stt`)
+
+Dự án tích hợp sẵn package độc lập `gemma_stt` (xem chi tiết tại [`PLAN_GEMMA4_VIETNAMESE_STT.md`](file:///D:/claw-cli/PLAN_GEMMA4_VIETNAMESE_STT.md)) hỗ trợ nhận dạng giọng nói tiếng Việt gần realtime với 2 chế độ:
+1. **`local_gemma`:** Chạy `google/gemma-4-E2B-it` trực tiếp trên GPU NVIDIA cục bộ (tự động lượng tử hóa `int4`/`int8` cho GPU 6 GB VRAM như RTX 4050 Laptop và lưu cache sang ổ `D:` qua `HF_HOME`).
+2. **`remote_v1`:** Gửi đoạn âm thanh từ VAD local lên Colab / OpenAI-compatible server (`.../v1/chat/completions` với `input_audio` hoặc `/v1/audio/transcriptions`).
+3. **Kết hợp với Gemma 4 26B trên Colab (`--forward-claw`):** Dùng `gemma-4-E2B-it` nhận dạng tiếng Việt ở máy local rồi chuyển văn bản sang `gemma-4-26B-A4B-it` trên Colab (`.../v1`) để điều khiển máy tính/terminal (do bản 26B A4B MoE chỉ có Vision+Text encoder, không có Audio encoder).
+
+### Quy trình khởi chạy nhanh `gemma_stt`
+
+```powershell
+# 1. Khảo sát GPU, CUDA, dung lượng ổ đĩa, Microphone và kết nối Colab /v1
+python scripts/check_env.py
+
+# 2. Liệt kê thiết bị microphone và kiểm tra hỗ trợ 16 kHz mono
+python scripts/list_microphones.py
+
+# 3. Thu âm thử 3 giây từ microphone hoặc sinh bộ WAV kiểm thử
+python scripts/record_test_wav.py --duration 3 --out outputs/test_mic.wav
+python scripts/record_test_wav.py --generate-fixtures
+
+# 4. Kiểm chứng nhận dạng từ file WAV / bộ mẫu reference.csv (Cổng chất lượng Phase C)
+python scripts/transcribe_wav.py --config config.yaml --input tests/fixtures/reference.csv
+
+# 5. Chạy nhận dạng giọng nói tiếng Việt gần realtime từ microphone
+python -m gemma_stt --config config.yaml
+
+# 6. Chạy nhận dạng kèm chuyển tiếp lệnh sang Claw Agent (Gemma 4 26B trên Colab /v1)
+python -m gemma_stt --config config.yaml --forward-claw
+
+# 7. Chạy ma trận benchmark độ trễ (p50/p95, RTF) và WER/CER (T01 -> T06)
+python scripts/benchmark.py --config config.yaml
+
+# 8. Xóa toàn bộ dữ liệu transcript/log/metrics để bảo mật riêng tư
+python -m gemma_stt --config config.yaml --clean-outputs
+```
+
+### Tinh chỉnh cấu hình (`config.yaml`)
+- **`vad.engine`:** Chọn `rms` (nhẹ, nhanh) hoặc `silero` (ONNX học máy giúp lọc tiếng quạt/gõ phím).
+- **`vad.silence_ms` / `vad.max_segment_ms`:** Mặc định chốt câu sau `450 ms` khoảng lặng hoặc cắt đoạn ở `4000 ms` (kèm `overlap_ms: 160` để không mất từ ở ranh giới).
+- **`queue.policy`:** Chọn `preserve_segments` (ưu tiên đầy đủ transcript, áp dụng backpressure) hoặc `ultra_low_latency` (ưu tiên độ trễ thấp, bỏ đoạn cũ khi quá tải nhưng luôn ghi rõ `dropped=True` vào `outputs/results.jsonl`).
+
+---
+
 ## 📄 Giấy phép
 
 Dự án được phân phối dưới giấy phép MIT.

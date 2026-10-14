@@ -281,7 +281,11 @@ def doctor() -> None:
     console.print(f"2. STT Provider: [bold]{cfg.stt.provider}[/bold] (model: {cfg.stt.model})")
     import importlib.util
 
-    if importlib.util.find_spec("faster_whisper") is not None:
+    if cfg.stt.provider == "gemma-stt":
+        console.print(
+            f"   - gemma-stt: [bold green]✔[/bold green] Đã kích hoạt (Colab /v1: {cfg.llm.base_url})"
+        )
+    elif importlib.util.find_spec("faster_whisper") is not None:
         console.print("   - faster-whisper: [bold green]✔[/bold green] Đã cài đặt")
     else:
         console.print("   - faster-whisper: [bold red]✘[/bold red] Chưa cài đặt")

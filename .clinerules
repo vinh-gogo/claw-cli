@@ -1,0 +1,24 @@
+# Project Intelligence & Rules (.clinerules)
+
+## 1. Quy tắc Memory Bank (Memory Bank Workflow)
+- Luôn đọc các file trong `memory-bank/` (`projectbrief.md`, `productContext.md`, `systemPatterns.md`, `techContext.md`, `activeContext.md`, `progress.md`) ở đầu mỗi phiên làm việc để nắm đầy đủ ngữ cảnh dự án.
+- Cập nhật `memory-bank/activeContext.md` và `memory-bank/progress.md` sau khi hoàn thành các thay đổi quan trọng hoặc khi người dùng yêu cầu **update memory bank**.
+
+## 2. Ngôn ngữ & Phong cách giao tiếp
+- Người dùng giao tiếp bằng **tiếng Việt**: luôn trả lời ngắn gọn, rõ ràng, định dạng GitHub Markdown chuẩn kèm liên kết file có thể nhấp (`[tên_file](file:///D:/claw-cli/...)`).
+
+## 3. Kiến trúc & Ràng buộc kỹ thuật quan trọng của `claw-cli`
+1. **Colab Unified Gateway (`https://snowcapped-denice-unprudent.ngrok-free.dev/v1`):**
+   - Một `base_url` duy nhất phục vụ cả:
+     - **Main LLM (`Gemma 4 26B A4B`):** `POST /v1/chat/completions` (Port `8001` sau Gateway `8000`).
+     - **Gemma 4 STT (`Gemma 4 E2B + mmproj`):** `POST /v1/audio/transcriptions` với `model="gemma-4-stt"` (Port `8003` sau Gateway `8000`).
+   - Lưu ý kiến trúc Gemma 4: Bản **26B A4B và 31B chỉ hỗ trợ Text + Image (không có Audio Encoder)**; chỉ các bản **E2B / E4B** mới có Audio Encoder (`mmproj`). Do đó STT bắt buộc phải định tuyến vào `gemma-4-E2B-it`.
+2. **Chạy `claw` từ bất kỳ thư mục nào trên Windows:**
+   - Người dùng thường chạy `claw` trực tiếp từ `PS C:\Users\lea26>`.
+   - Mọi đường dẫn cấu hình (`config.yaml`, `.cache/silero_vad.onnx`) phải có cơ chế fallback về thư mục gốc của repo (`Path(__file__).resolve().parents[...]`) thay vì giả định `Path.cwd()` luôn là `D:\claw-cli`.
+3. **Silero VAD v5 ONNX:**
+   - File `silero_vad.onnx` sử dụng chuẩn **Silero v5** với inputs `['input', 'state', 'sr']` (`state` shape `(2, 1, 128)`, `input` shape `(1, 576)` gồm `64` mẫu context + `512` mẫu frame ở 16kHz). Không truyền `h, c` của Silero v4 vào model v5.
+4. **Chỉnh sửa file `.ipynb`:**
+   - Công cụ `replace_file_content` không hỗ trợ file `.ipynb`; khi cập nhật `colab/colab_llama_cpp_ngrok.ipynb`, sử dụng `write_to_file` (`Overwrite=True`) hoặc script Python hỗ trợ.
+5. **Kiểm tra chất lượng trước khi hoàn tất:**
+   - Luôn chạy `pytest -q`, `ruff check src tests`, và `mypy src` để đảm bảo 0 lỗi trước khi báo cáo kết quả.

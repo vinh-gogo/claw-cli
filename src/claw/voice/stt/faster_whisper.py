@@ -27,16 +27,27 @@ class FasterWhisperSTT:
         self._loading = False
         self._load_lock = asyncio.Lock()
 
-    def _load_model_sync(self) -> Any:
+    def _load_model_sync(self, force_cpu: bool = False) -> Any:
         from faster_whisper import WhisperModel
 
-        logger.info(f"Loading faster-whisper model '{self.cfg.model}' on {self.cfg.device} ({self.cfg.compute_type})...")
-        model = WhisperModel(
-            self.cfg.model,
-            device=self.cfg.device,
-            compute_type=self.cfg.compute_type,
-        )
-        return model
+        device = "cpu" if force_cpu else self.cfg.device
+        compute_type = "int8" if device == "cpu" else self.cfg.compute_type
+        logger.info(f"Loading faster-whisper model '{self.cfg.model}' on {device} ({compute_type})...")
+        try:
+            return WhisperModel(
+                self.cfg.model,
+                device=device,
+                compute_type=compute_type,
+            )
+        except Exception as e:
+            if device != "cpu":
+                logger.warning(f"CUDA load failed for faster-whisper ({e}); falling back to CPU (int8).")
+                return WhisperModel(
+                    self.cfg.model,
+                    device="cpu",
+                    compute_type="int8",
+                )
+            raise
 
     async def prewarm(self) -> None:
         """Prewarm model in background thread so first user utterance is fast."""
@@ -69,14 +80,33 @@ class FasterWhisperSTT:
             audio_f32 = pcm.astype(np.float32)
 
         def _do_transcribe() -> Transcript:
-            segments_gen, info = self._model.transcribe(
-                audio_f32,
-                language=language or self.cfg.language,
-                initial_prompt=self.cfg.initial_prompt,
-                vad_filter=True,
-                beam_size=5,
-            )
-            raw_segments = list(segments_gen)
+            try:
+                segments_gen, info = self._model.transcribe(
+                    audio_f32,
+                    language=language or self.cfg.language,
+                    initial_prompt=self.cfg.initial_prompt,
+                    vad_filter=True,
+                    beam_size=5,
+                )
+                raw_segments = list(segments_gen)
+            except Exception as err:
+                err_msg = str(err).lower()
+                if any(k in err_msg for k in ("cublas", "cudnn", "cuda", ".dll", ".so")):
+                    logger.warning(
+                        f"CUDA runtime DLL missing during transcribe ({err}); reloading faster-whisper on CPU..."
+                    )
+                    self._model = self._load_model_sync(force_cpu=True)
+                    segments_gen, info = self._model.transcribe(
+                        audio_f32,
+                        language=language or self.cfg.language,
+                        initial_prompt=self.cfg.initial_prompt,
+                        vad_filter=True,
+                        beam_size=5,
+                    )
+                    raw_segments = list(segments_gen)
+                else:
+                    raise
+
             segments: list[Segment] = []
             text_parts: list[str] = []
             total_confidence = 0.0

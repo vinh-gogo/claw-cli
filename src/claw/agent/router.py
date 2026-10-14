@@ -11,6 +11,8 @@ CommandType = Literal[
     "reset",
     "mute_tts",
     "unmute_tts",
+    "speech_on",
+    "speech_off",
     "prompt",
 ]
 
@@ -30,12 +32,26 @@ META_COMMANDS: dict[CommandType, list[str]] = {
     "reset": ["xoá phiên", "làm mới", "reset", "xoá lịch sử", "bắt đầu lại"],
     "mute_tts": ["im lặng", "tắt tiếng", "tắt âm", "mute"],
     "unmute_tts": ["bật tiếng", "bật âm", "mở tiếng", "unmute"],
+    "speech_on": [
+        "/speech on",
+        "speech on",
+        "bật giọng nói",
+        "chế độ giọng nói",
+        "chỉ nhận giọng nói",
+    ],
+    "speech_off": [
+        "/speech off",
+        "speech off",
+        "tắt giọng nói",
+        "chế độ văn bản",
+        "chỉ nhận văn bản",
+    ],
 }
 
 
 def route_input(text: str) -> RoutedInput:
     """Classify input as a meta voice/text command or a general agent prompt."""
-    normalized = text.strip().lower()
+    normalized = " ".join(text.strip().lower().split())
 
     for cmd_type, triggers in META_COMMANDS.items():
         if normalized in triggers:

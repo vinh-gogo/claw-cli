@@ -40,6 +40,8 @@ ENV/
 htmlcov/
 
 # Local cache and runtime files
+.cache/
+outputs/
 sessions/
 *.log
 *.jsonl

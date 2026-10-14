@@ -1,0 +1,11 @@
+file,category,duration_s,expected
+vi_001.wav,short_quiet,2.2,Xin chào mọi người
+vi_002.wav,short_quiet,2.4,Hôm nay thời tiết rất đẹp
+vi_003.wav,short_quiet,2.5,Kiểm tra hệ thống nhận dạng giọng nói
+vi_004.wav,long_punct,4.2,"Khi phát hiện khoảng lặng, chương trình sẽ tự động chuyển âm thanh thành văn bản tiếng Việt."
+vi_005.wav,long_punct,4.5,"Nếu hàng đợi xử lý bị đầy, ứng dụng cần ghi nhận rõ ràng vào nhật ký hệ thống."
+vi_006.wav,proper_noun_number,3.2,Chuyến bay VN214 khởi hành lúc 15 giờ 30 phút từ Hà Nội đi Đà Nẵng
+vi_007.wav,proper_noun_number,3.5,Nguyễn Văn An vừa nâng cấp thư viện Python 3.11 trên card đồ họa RTX 4050
+vi_008.wav,low_volume,2.6,Đây là đoạn thu âm với giọng nói nhỏ để thử độ nhạy của micro
+vi_009.wav,noise,2.5,
+vi_010.wav,silence,2.0,
