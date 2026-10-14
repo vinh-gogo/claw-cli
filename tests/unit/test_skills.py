@@ -5,8 +5,9 @@ from claw.skills.web_search import open_and_search
 
 
 def test_web_search_urls(monkeypatch):
-    # Mock subprocess and os.startfile so it does not open windows during test
-    monkeypatch.setattr("claw.skills.web_search.os.startfile", lambda url: None)
+    # Mock subprocess, webbrowser, and os.startfile so it does not open windows during test
+    monkeypatch.setattr("claw.skills.web_search.os.startfile", lambda url: None, raising=False)
+    monkeypatch.setattr("webbrowser.open", lambda url: True)
 
     res_google = open_and_search("thời tiết hôm nay", engine="google")
     assert res_google["ok"] is True

@@ -30,7 +30,7 @@ def press_media_key(action: str) -> tuple[bool, str]:
         return False, f"Hành động media '{action}' không hợp lệ (hỗ trợ: play_pause, next, prev, stop, volume_up, volume_down, mute)"
 
     if sys.platform != "win32":
-        return False, "Chỉ hỗ trợ trên Windows"
+        return False, f"Chỉ hỗ trợ trên Windows ({action})"
 
     try:
         import ctypes
