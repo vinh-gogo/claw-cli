@@ -4,12 +4,19 @@ import asyncio
 import json
 import logging
 import os
+import sys
 from typing import Any, AsyncIterator
 
 import httpx
-from openai import APIConnectionError, AsyncOpenAI, InternalServerError, RateLimitError
+from openai import (
+    APIConnectionError,
+    APIStatusError,
+    AsyncOpenAI,
+    InternalServerError,
+    RateLimitError,
+)
 
-from claw.config import LLMConfig
+from claw.config import LLMConfig, discover_remote_base_url
 from claw.llm.schema import LLMResponse, Message, ToolCall
 
 logger = logging.getLogger("claw.llm")
@@ -18,6 +25,7 @@ logger = logging.getLogger("claw.llm")
 class LLMClient:
     def __init__(self, cfg: LLMConfig, http_client: Any = None) -> None:
         self.cfg = cfg
+        self._http_client = http_client
         self._resolved_model: str | None = None
 
         if "127.0.0.1" in cfg.base_url or "localhost" in cfg.base_url:
@@ -25,14 +33,32 @@ class LLMClient:
             if "127.0.0.1" not in cur:
                 os.environ["NO_PROXY"] = f"{cur},127.0.0.1,localhost".strip(",")
 
-        self.client = AsyncOpenAI(
-            base_url=cfg.base_url.rstrip("/"),
-            api_key=cfg.api_key or "not-needed",
-            default_headers=cfg.extra_headers,
-            timeout=cfg.timeout_s,
+        self.client = self._build_client(cfg.base_url)
+
+    def _build_client(self, base_url: str) -> AsyncOpenAI:
+        return AsyncOpenAI(
+            base_url=base_url.rstrip("/"),
+            api_key=self.cfg.api_key or "not-needed",
+            default_headers=self.cfg.extra_headers,
+            timeout=self.cfg.timeout_s,
             max_retries=0,  # We implement custom retry with exponential backoff
-            http_client=http_client,
+            http_client=self._http_client,
         )
+
+    async def _try_refresh_endpoint(self) -> bool:
+        """Check discovery_url for a newer gradio.live /v1 URL if the current one failed."""
+        if not self.cfg.discovery_url or self._http_client is not None:
+            return False
+        if "CLAW_BASE_URL" in os.environ or "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ:
+            return False
+        new_url = await asyncio.to_thread(discover_remote_base_url, self.cfg.discovery_url)
+        if new_url and new_url.rstrip("/") != self.cfg.base_url.rstrip("/"):
+            logger.info("Auto-discovered new Colab endpoint: %s", new_url)
+            self.cfg.base_url = new_url
+            self.client = self._build_client(new_url)
+            self._resolved_model = None
+            return True
+        return False
 
     async def get_model(self) -> str:
         if self.cfg.model != "auto" and self.cfg.model:
@@ -41,15 +67,20 @@ class LLMClient:
         if self._resolved_model:
             return self._resolved_model
 
-        try:
-            models_page = await self.client.models.list()
-            model_ids = [m.id for m in models_page.data]
-            if model_ids:
-                self._resolved_model = model_ids[0]
-                logger.info(f"Auto-detected model: {self._resolved_model}")
-                return self._resolved_model
-        except Exception as e:
-            logger.warning(f"Failed to auto-detect model from {self.cfg.base_url}: {e}")
+        for attempt in range(2):
+            try:
+                models_page = await self.client.models.list()
+                model_ids = [m.id for m in models_page.data]
+                if model_ids:
+                    self._resolved_model = model_ids[0]
+                    logger.info(f"Auto-detected model: {self._resolved_model}")
+                    return self._resolved_model
+                break
+            except Exception as e:
+                if attempt == 0 and await self._try_refresh_endpoint():
+                    continue
+                logger.warning(f"Failed to auto-detect model from {self.cfg.base_url}: {e}")
+                break
 
         self._resolved_model = "default"
         return self._resolved_model
@@ -130,9 +161,12 @@ class LLMClient:
                 yield response
                 return
 
-            except (APIConnectionError, RateLimitError, InternalServerError, httpx.RequestError) as e:
+            except (APIConnectionError, APIStatusError, RateLimitError, InternalServerError, httpx.RequestError) as e:
                 last_err = e
                 if attempt < self.cfg.max_retries:
+                    if await self._try_refresh_endpoint():
+                        kwargs["model"] = await self.get_model()
+                        continue
                     backoff = (2**attempt) * 1.0
                     logger.warning(f"LLM request failed ({e}). Retrying in {backoff}s...")
                     await asyncio.sleep(backoff)

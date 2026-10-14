@@ -28,8 +28,10 @@ model:
     Preserve Vietnamese diacritics. Output transcription only.
 
 remote_v1:
-  # URL server Colab / FastAPI Gateway (có thể ghi đè qua biến môi trường CLAW_BASE_URL)
-  base_url: "https://snowcapped-denice-unprudent.ngrok-free.dev/v1"
+  # URL cố định qua Cloudflare Tunnel (api.gloryvocab.com)
+  base_url: "https://api.gloryvocab.com/v1"
+  # URL dự phòng tự động đồng bộ nếu dùng gradio.live
+  discovery_url: "https://huggingface.co/AlexHung29629/gemma-4-26B-A4B-it-GGUF/resolve/main/claw_endpoint.json"
   api_key_env: "CLAW_API_KEY"
   api_key: "not-needed"
   # Tên model STT trên Colab Gateway ("gemma-4-stt" hoặc "auto")

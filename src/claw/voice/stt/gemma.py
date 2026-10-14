@@ -23,9 +23,11 @@ class Gemma4STTProvider:
         llm_cfg: LLMConfig | None = None,
         stt_cfg: STTConfig | None = None,
     ) -> None:
+        self._llm_cfg = llm_cfg
         self.cfg = GemmaSTTConfig.load(config_path)
         if llm_cfg is not None:
             self.cfg.remote_v1.base_url = llm_cfg.base_url
+            self.cfg.remote_v1.discovery_url = llm_cfg.discovery_url
             self.cfg.remote_v1.api_key = llm_cfg.api_key
             self.cfg.remote_v1.extra_headers.update(llm_cfg.extra_headers)
         if stt_cfg is not None and stt_cfg.model and stt_cfg.model != "medium":
@@ -40,12 +42,17 @@ class Gemma4STTProvider:
             if self._runner is None:
                 try:
                     self._runner = await asyncio.to_thread(create_model_runner, self.cfg)
+                    if self._llm_cfg is not None and self.cfg.remote_v1.base_url:
+                        self._llm_cfg.base_url = self.cfg.remote_v1.base_url
                 except Exception as exc:
                     logger.debug("Could not prewarm Gemma4STTProvider: %s", exc)
 
     async def transcribe(
         self, pcm: np.ndarray, sample_rate: int = 16000, language: str = "vi"
     ) -> Transcript:
+        if self._llm_cfg is not None and self._llm_cfg.base_url != self.cfg.remote_v1.base_url:
+            self.cfg.remote_v1.base_url = self._llm_cfg.base_url
+
         if self._runner is None:
             async with self._load_lock:
                 if self._runner is None:
@@ -59,6 +66,8 @@ class Gemma4STTProvider:
         text, _vram_mb = await asyncio.to_thread(
             self._runner.transcribe, audio_f32, sample_rate
         )
+        if self._llm_cfg is not None and self.cfg.remote_v1.base_url:
+            self._llm_cfg.base_url = self.cfg.remote_v1.base_url
         return Transcript(
             text=text.strip(),
             language=language,

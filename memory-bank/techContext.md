@@ -16,7 +16,7 @@
 
 ## 2. Cấu hình mặc định (`src/claw/config.py` & `config.yaml`)
 - **LLM (`LLMConfig`):**
-  - `base_url`: `"https://snowcapped-denice-unprudent.ngrok-free.dev/v1"` (ghi đè qua `CLAW_BASE_URL`).
+  - `base_url`: `"https://api.gloryvocab.com/v1"` (Cloudflare Tunnel cố định vĩnh viễn, ghi đè qua `CLAW_BASE_URL` hoặc tự động dự phòng qua `discovery_url`).
   - `model`: `"auto"` (tự chọn `gemma-4-26B-A4B-it-Q4_K_M.gguf` từ `/v1/models`).
 - **STT (`STTConfig` & `GemmaSTTConfig`):**
   - `provider`: `"gemma-stt"` (mặc định trong `claw`, ghi đè qua `CLAW_STT_PROVIDER`).

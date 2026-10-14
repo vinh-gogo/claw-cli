@@ -13,7 +13,12 @@ from typing import Any, Protocol
 import httpx
 import numpy as np
 
-from gemma_stt.config_schema import GemmaSTTConfig, ModelConfig, RemoteV1Config
+from gemma_stt.config_schema import (
+    GemmaSTTConfig,
+    ModelConfig,
+    RemoteV1Config,
+    discover_remote_base_url,
+)
 from gemma_stt.vad import compute_rms
 
 logger = logging.getLogger("gemma_stt.model_runner")
@@ -357,22 +362,43 @@ class RemoteV1Runner:
         if remote_cfg.api_key and remote_cfg.api_key != "not-needed":
             self._headers["Authorization"] = f"Bearer {remote_cfg.api_key}"
 
+    def _try_refresh_endpoint(self) -> bool:
+        import os
+        import sys
+
+        if not self.cfg.discovery_url:
+            return False
+        if "CLAW_BASE_URL" in os.environ or "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ:
+            return False
+        new_url = discover_remote_base_url(self.cfg.discovery_url)
+        if new_url and new_url.rstrip("/") != self.cfg.base_url.rstrip("/"):
+            logger.info("RemoteV1Runner auto-discovered new Colab endpoint: %s", new_url)
+            self.cfg.base_url = new_url
+            return True
+        return False
+
     def load(self) -> None:
         base = self.cfg.base_url.rstrip("/")
         with httpx.Client(headers=self._headers, timeout=10.0, follow_redirects=True) as client:
-            try:
-                resp = client.get(f"{base}/models")
-                resp.raise_for_status()
-                data = resp.json()
-                models = [
-                    m.get("id", "")
-                    for m in data.get("data", [])
-                    if isinstance(m, dict) and m.get("id")
-                ]
-            except Exception as exc:
-                raise RuntimeError(
-                    f"Không thể kết nối tới Colab server tại {base}/models: {exc}"
-                ) from exc
+            models: list[str] = []
+            for attempt in range(2):
+                base = self.cfg.base_url.rstrip("/")
+                try:
+                    resp = client.get(f"{base}/models")
+                    resp.raise_for_status()
+                    data = resp.json()
+                    models = [
+                        m.get("id", "")
+                        for m in data.get("data", [])
+                        if isinstance(m, dict) and m.get("id")
+                    ]
+                    break
+                except Exception as exc:
+                    if attempt == 0 and self._try_refresh_endpoint():
+                        continue
+                    raise RuntimeError(
+                        f"Không thể kết nối tới Colab server tại {base}/models: {exc}"
+                    ) from exc
 
             if self.resolved_model == "auto":
                 preferred_stt = next(
@@ -424,43 +450,50 @@ class RemoteV1Runner:
             return ("", 0.0)
 
         wav_bytes = pcm_float32_to_wav_bytes(audio, sample_rate)
-        base = self.cfg.base_url.rstrip("/")
 
         with httpx.Client(headers=self._headers, timeout=self.cfg.timeout_s, follow_redirects=True) as client:
-            if self.resolved_endpoint == "transcriptions":
-                files = {"file": ("segment.wav", wav_bytes, "audio/wav")}
-                data = {"model": self.resolved_model, "language": "vi"}
-                resp = client.post(f"{base}/audio/transcriptions", data=data, files=files)
-                resp.raise_for_status()
-                payload = resp.json()
-                text = str(payload.get("text", ""))
-                return (clean_transcription_output(text), 0.0)
+            for attempt in range(2):
+                base = self.cfg.base_url.rstrip("/")
+                try:
+                    if self.resolved_endpoint == "transcriptions":
+                        files = {"file": ("segment.wav", wav_bytes, "audio/wav")}
+                        data = {"model": self.resolved_model, "language": "vi"}
+                        resp = client.post(f"{base}/audio/transcriptions", data=data, files=files)
+                        resp.raise_for_status()
+                        payload = resp.json()
+                        text = str(payload.get("text", ""))
+                        return (clean_transcription_output(text), 0.0)
 
-            # endpoint_type == "chat_audio"
-            b64_wav = base64.b64encode(wav_bytes).decode("ascii")
-            body = {
-                "model": self.resolved_model,
-                "temperature": 0.0,
-                "max_tokens": 128,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": self.prompt},
+                    # endpoint_type == "chat_audio"
+                    b64_wav = base64.b64encode(wav_bytes).decode("ascii")
+                    body = {
+                        "model": self.resolved_model,
+                        "temperature": 0.0,
+                        "max_tokens": 128,
+                        "messages": [
                             {
-                                "type": "input_audio",
-                                "input_audio": {"data": b64_wav, "format": "wav"},
-                            },
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": self.prompt},
+                                    {
+                                        "type": "input_audio",
+                                        "input_audio": {"data": b64_wav, "format": "wav"},
+                                    },
+                                ],
+                            }
                         ],
                     }
-                ],
-            }
-            resp = client.post(f"{base}/chat/completions", json=body)
-            resp.raise_for_status()
-            payload = resp.json()
-            choices = payload.get("choices", [])
-            content = choices[0].get("message", {}).get("content", "") if choices else ""
-            return (clean_transcription_output(str(content)), 0.0)
+                    resp = client.post(f"{base}/chat/completions", json=body)
+                    resp.raise_for_status()
+                    payload = resp.json()
+                    choices = payload.get("choices", [])
+                    content = choices[0].get("message", {}).get("content", "") if choices else ""
+                    return (clean_transcription_output(str(content)), 0.0)
+                except Exception:
+                    if attempt == 0 and self._try_refresh_endpoint():
+                        continue
+                    raise
+        return ("", 0.0)
 
 
 def create_model_runner(cfg: GemmaSTTConfig) -> STTModelRunner:

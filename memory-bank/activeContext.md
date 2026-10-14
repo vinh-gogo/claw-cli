@@ -19,6 +19,10 @@ Hoàn thiện trải nghiệm điều khiển giọng nói tiếng Việt gần 
    - Giảm `silence_ms` xuống `600 ms` và đặt `review_transcript = False` để tự động chốt câu và thực thi ngay khi người nói dừng 0.6 giây.
 5. **Khởi tạo Memory Bank (`memory-bank/` & `.clinerules`):**
    - Tạo đầy đủ 6 file cốt lõi trong `memory-bank/` và `.clinerules`.
+6. **Tích hợp Cloudflare Named Tunnel cố định (`https://api.gloryvocab.com/v1`) + `gradio.live` Auto-Discovery:**
+   - Đặt `base_url` mặc định cố định trong [`src/claw/config.py`](file:///D:/claw-cli/src/claw/config.py), [`src/gemma_stt/config_schema.py`](file:///D:/claw-cli/src/gemma_stt/config_schema.py) và [`config.yaml`](file:///D:/claw-cli/config.yaml) thành `"https://api.gloryvocab.com/v1"`.
+   - Ô 3 trong [`colab/colab_llama_cpp_ngrok.ipynb`](file:///D:/claw-cli/colab/colab_llama_cpp_ngrok.ipynb) bật sẵn `CORSMiddleware` cho `https://gloryvocab.com` và header chống đệm SSE (`X-Accel-Buffering: no`).
+   - Ô 4 trong [`colab/colab_llama_cpp_ngrok.ipynb`](file:///D:/claw-cli/colab/colab_llama_cpp_ngrok.ipynb) mặc định chạy `cloudflared tunnel --no-autoupdate run --token <CLOUDFLARE_TOKEN>` nối Port `8000` trên Colab vào `https://api.gloryvocab.com` (kèm tùy chọn dự phòng `gradio.live` + tự động đồng bộ qua Hugging Face).
 
 ## 3. Các bước tiếp theo (Next Steps)
 - Theo dõi phản hồi thực tế của người dùng khi sử dụng `/speech on` với Colab Gateway.

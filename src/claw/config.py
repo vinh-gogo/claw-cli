@@ -1,18 +1,109 @@
 from __future__ import annotations
 
+import json
 import os
+import re
+import sys
+import time
 import tomllib
 from pathlib import Path
 from typing import Any, Literal
 
+import httpx
 import platformdirs
 from pydantic import BaseModel, Field
+
+DEFAULT_DISCOVERY_URL = (
+    "https://huggingface.co/AlexHung29629/gemma-4-26B-A4B-it-GGUF/resolve/main/claw_endpoint.json"
+)
+
+_HF_RESOLVE_RE = re.compile(
+    r"^https?://huggingface\.co/(?:(datasets|spaces)/)?([^/]+/[^/]+)/(?:resolve|raw)/([^/]+)/(.+)$"
+)
+
+
+def discover_remote_base_url(discovery_url: str, timeout_s: float = 3.5) -> str | None:
+    """Fetch the latest public Colab tunnel base_url (e.g. https://xxxx.gradio.live/v1)
+    from a fixed Hugging Face repo file or GitHub Gist raw URL, bypassing CDN cache.
+    """
+    url = (discovery_url or "").strip()
+    if not url:
+        return None
+
+    headers = {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    }
+
+    fetch_url = url
+    m = _HF_RESOLVE_RE.match(url.split("?")[0])
+    try:
+        with httpx.Client(timeout=timeout_s, follow_redirects=True, headers=headers) as client:
+            if m:
+                repo_kind, repo_id, branch, file_path = m.groups()
+                api_prefix = "datasets" if repo_kind == "datasets" else ("spaces" if repo_kind == "spaces" else "models")
+                rev_api = f"https://huggingface.co/api/{api_prefix}/{repo_id}/revision/{branch}"
+                try:
+                    rev_resp = client.get(rev_api, params={"t": int(time.time())})
+                    if rev_resp.status_code == 200:
+                        sha = rev_resp.json().get("sha")
+                        if sha:
+                            prefix_path = f"{repo_kind}/" if repo_kind else ""
+                            fetch_url = f"https://huggingface.co/{prefix_path}{repo_id}/resolve/{sha}/{file_path}"
+                except Exception:
+                    pass
+
+            sep = "&" if "?" in fetch_url else "?"
+            resp = client.get(f"{fetch_url}{sep}t={int(time.time())}")
+            if resp.status_code != 200:
+                return None
+
+            raw_text = resp.text.strip()
+            candidate = ""
+            if raw_text.startswith("{"):
+                data = json.loads(raw_text)
+                if isinstance(data, dict):
+                    candidate = str(data.get("base_url") or data.get("url") or "").strip()
+            else:
+                for line in raw_text.splitlines():
+                    line = line.strip()
+                    if line.startswith("http://") or line.startswith("https://"):
+                        candidate = line
+                        break
+
+            if not candidate:
+                return None
+            candidate = candidate.rstrip("/")
+            if not candidate.endswith("/v1"):
+                candidate = f"{candidate}/v1"
+            return candidate
+    except Exception:
+        return None
+
+
+def refresh_llm_base_url(llm_cfg: "LLMConfig", force: bool = False) -> str:
+    """Resolve and update llm_cfg.base_url from llm_cfg.discovery_url if available."""
+    if not force:
+        if "CLAW_BASE_URL" in os.environ:
+            return llm_cfg.base_url
+        if "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ:
+            return llm_cfg.base_url
+
+    discovered = discover_remote_base_url(llm_cfg.discovery_url)
+    if discovered:
+        llm_cfg.base_url = discovered
+    return llm_cfg.base_url
 
 
 class LLMConfig(BaseModel):
     base_url: str = Field(
-        default="https://snowcapped-denice-unprudent.ngrok-free.dev/v1",
+        default="https://api.gloryvocab.com/v1",
         description="Base URL for OpenAI-compatible server",
+    )
+    discovery_url: str = Field(
+        default=DEFAULT_DISCOVERY_URL,
+        description="Fixed URL (Hugging Face / Gist JSON) to auto-discover the active gradio.live /v1 URL",
     )
     api_key_env: str = Field(default="CLAW_API_KEY")
     api_key: str = Field(default="not-needed")
@@ -175,6 +266,8 @@ class Config(BaseModel):
 
         # Apply Environment Variable Overrides
         llm_data = cfg_dict.get("llm", {})
+        if "CLAW_DISCOVERY_URL" in os.environ:
+            llm_data["discovery_url"] = os.environ["CLAW_DISCOVERY_URL"]
         if "CLAW_BASE_URL" in os.environ:
             llm_data["base_url"] = os.environ["CLAW_BASE_URL"]
         if "CLAW_API_KEY" in os.environ:
@@ -199,7 +292,10 @@ class Config(BaseModel):
             safety_data["yolo"] = os.environ["CLAW_YOLO"].lower() in ("1", "true", "yes")
         cfg_dict["safety"] = safety_data
 
-        return cls.model_validate(cfg_dict)
+        cfg = cls.model_validate(cfg_dict)
+        if "base_url" not in llm_data:
+            refresh_llm_base_url(cfg.llm)
+        return cfg
 
 
 _active_config: Config | None = None
