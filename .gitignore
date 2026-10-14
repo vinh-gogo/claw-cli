@@ -57,3 +57,7 @@ sessions/
 .idea/
 *.swp
 *.swo
+
+# Colab notebooks (kept locally only)
+colab/colab_llama_cpp_ngrok.ipynb
+
