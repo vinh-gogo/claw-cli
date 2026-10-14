@@ -37,8 +37,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-wakeword = ["openwakeword>=0.6"]
-piper = ["piper-tts>=1.2"]
+wakeword = ["openwakeword>=0.6; python_version < '3.12' or sys_platform == 'win32'"]
+piper = ["piper-tts>=1.2; python_version < '3.12'"]
 gemma = [
   "transformers>=5.19.0",
   "accelerate>=1.0.0",
@@ -71,6 +71,7 @@ packages = ["src/claw", "src/gemma_stt"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+extend-exclude = ["colab"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
