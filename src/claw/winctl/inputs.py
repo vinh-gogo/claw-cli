@@ -2,15 +2,26 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any
 
-import pyautogui
-import pyperclip
+try:
+    import pyautogui as _pyautogui
+
+    # Enable PyAutoGUI fail-safe: move mouse to upper-left corner stops actions
+    _pyautogui.FAILSAFE = True
+    _pyautogui.PAUSE = 0.05
+    pyautogui: Any = _pyautogui
+except Exception:
+    pyautogui = None
+
+try:
+    import pyperclip as _pyperclip
+
+    pyperclip: Any = _pyperclip
+except Exception:
+    pyperclip = None
 
 logger = logging.getLogger("claw.winctl.inputs")
-
-# Enable PyAutoGUI fail-safe: move mouse to upper-left corner stops actions
-pyautogui.FAILSAFE = True
-pyautogui.PAUSE = 0.05
 
 
 def type_text_sync(text: str) -> bool:
